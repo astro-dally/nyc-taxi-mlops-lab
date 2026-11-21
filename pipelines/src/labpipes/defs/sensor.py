@@ -10,6 +10,7 @@ import dagster as dg
 
 from ..partitions import trip_months
 from ..resources import DataBucket
+from .features import trip_features
 from .marts import zone_hour_stats
 from .raw_trips import raw_trips
 from .staging import stg_trips
@@ -17,8 +18,8 @@ from .trip_files import trip_files
 
 ingest_month = dg.define_asset_job(
     "ingest_month",
-    selection=dg.AssetSelection.assets(trip_files, raw_trips, stg_trips, zone_hour_stats),
-    description="Ingest one month of trip data: trip_files -> raw_trips -> stg_trips -> zone_hour_stats.",
+    selection=dg.AssetSelection.assets(trip_files, raw_trips, stg_trips, zone_hour_stats, trip_features),
+    description="Ingest one month of trip data: trip_files -> raw_trips -> stg_trips -> zone_hour_stats, trip_features.",
 )
 
 

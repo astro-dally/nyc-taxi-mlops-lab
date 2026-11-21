@@ -46,6 +46,16 @@ resource "aws_vpc_security_group_ingress_rule" "platform_mlflow" {
   description                  = "MLflow from app host"
 }
 
+resource "aws_vpc_security_group_ingress_rule" "platform_mlflow_notebook" {
+  count                        = var.github_repo != null ? 1 : 0
+  security_group_id            = aws_security_group.platform.id
+  ip_protocol                  = "tcp"
+  from_port                    = 5000
+  to_port                      = 5000
+  referenced_security_group_id = module.notebook[0].security_group_id
+  description                  = "MLflow from SageMaker notebook"
+}
+
 resource "aws_vpc_security_group_egress_rule" "platform_egress" {
   security_group_id = aws_security_group.platform.id
   ip_protocol       = "-1"
