@@ -1,0 +1,40 @@
+# App CI (S0): make check on every push and PR.
+# Self-hosted CD is in app-deploy.yaml (push to main only) to satisfy the security rule:
+# a self-hosted runner job must never be in a workflow that triggers on pull_request.
+name: app
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "contracts/**"
+      - "deploy/compose.app.yaml"
+      - "deploy/traefik/**"
+      - ".github/workflows/app.yaml"
+      - ".github/workflows/app-deploy.yaml"
+  pull_request:
+    paths:
+      - "app/**"
+      - "contracts/**"
+      - "deploy/compose.app.yaml"
+      - "deploy/traefik/**"
+      - ".github/workflows/app.yaml"
+      - ".github/workflows/app-deploy.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.2.0
+      - name: Contracts, lint, tests
+        run: make check

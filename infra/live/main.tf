@@ -1,10 +1,74 @@
 # S0: wire the root module.
 #
-# Given modules in ../modules:
-#   host    one EC2 host per role in contracts/runtime.yaml (platform, app, llm)
-#   rds     Postgres for Dagster, MLflow and pgvector
-#   bucket  your artifact bucket (never aws_s3_bucket: see AGENTS.md)
-#   secret  the lab/wiki secret container
-#
-# variables.tf has the inputs; outputs.tf must expose what runtime.yaml lists under
-# terraform_outputs. Ask your agent to propose the wiring, then check it against those files.
+# Three hosts (platform, app, llm), one RDS instance, one artifact bucket, and
+# the lab/wiki secret container. Hosts use LabInstanceProfile; no IAM resources created here.
+
+data "aws_vpc" "default" {
+  default = true
+}
+
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+  filter {
+    name   = "availabilityZone"
+    values = [var.availability_zone]
+  }
+}
+
+# RDS needs subnets in at least 2 AZs for the subnet group.
+data "aws_subnets" "all" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+}
+
+locals {
+  subnet_id  = data.aws_subnets.default.ids[0]
+  subnet_ids = data.aws_subnets.all.ids
+}
+
+module "platform" {
+  source             = "../modules/host"
+  role               = "platform"
+  instance_type      = var.platform_instance_type
+  subnet_id          = local.subnet_id
+  security_group_ids = [aws_security_group.platform.id]
+}
+
+module "app" {
+  source             = "../modules/host"
+  role               = "app"
+  instance_type      = var.app_instance_type
+  subnet_id          = local.subnet_id
+  security_group_ids = [aws_security_group.app.id]
+}
+
+module "llm" {
+  source             = "../modules/host"
+  role               = "llm"
+  instance_type      = var.llm_instance_type
+  subnet_id          = local.subnet_id
+  security_group_ids = [aws_security_group.llm.id]
+}
+
+module "rds" {
+  source             = "../modules/rds"
+  instance_class     = var.rds_instance_class
+  subnet_ids         = local.subnet_ids
+  security_group_ids = [aws_security_group.rds.id]
+}
+
+module "artifact_bucket" {
+  source = "../modules/bucket"
+  name   = "lab-artifacts"
+}
+
+module "wiki_secret" {
+  source      = "../modules/secret"
+  name        = "lab/wiki"
+  description = "Wiki URL and token (lab/wiki.url, lab/wiki.token)"
+}
