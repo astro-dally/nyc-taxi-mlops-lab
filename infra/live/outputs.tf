@@ -31,6 +31,17 @@ output "artifact_bucket" {
   description = "S3 bucket for MLflow artifacts and training data."
 }
 
+# S1 outputs listed in contracts/platform.yaml → terraform_outputs
+output "redshift_cluster_id" {
+  value       = module.redshift.cluster_id
+  description = "Redshift cluster identifier."
+}
+
+output "redshift_database" {
+  value       = module.redshift.database
+  description = "Redshift database name."
+}
+
 # Not in runtime.yaml terraform_outputs, but useful for wiring env vars.
 output "platform_private_ip" {
   value       = module.platform.private_ip
