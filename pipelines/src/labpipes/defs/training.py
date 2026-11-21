@@ -238,7 +238,7 @@ def beats_champion(artifacts: ArtifactBucket) -> dg.AssetCheckResult:
 
     return dg.AssetCheckResult(
         passed=passed,
-        severity=dg.AssetCheckSeverity.ERROR if not passed else None,
+        severity=dg.AssetCheckSeverity.ERROR,
         description=desc,
         metadata={
             "mae_min": dg.MetadataValue.float(mae),
