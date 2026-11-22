@@ -89,6 +89,7 @@ def wiki_chunks(context: AssetExecutionContext, rag: RagStore) -> dg.Materialize
     """Split wiki pages into content-hashed chunks."""
     with rag.connect() as conn:
         with conn.cursor() as cur:
+            cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS chunks (
                     id TEXT PRIMARY KEY,
@@ -126,7 +127,7 @@ def wiki_chunks(context: AssetExecutionContext, rag: RagStore) -> dg.Materialize
 
                 # Clean up any removed chunks for this page
                 if valid_chunk_ids:
-                    cur.execute("DELETE FROM chunks WHERE page_id = %s AND id NOT IN %s;", (page_id, tuple(valid_chunk_ids)))
+                    cur.execute("DELETE FROM chunks WHERE page_id = %s AND NOT (id = ANY(%s));", (page_id, valid_chunk_ids))
                 else:
                     cur.execute("DELETE FROM chunks WHERE page_id = %s;", (page_id,))
 
