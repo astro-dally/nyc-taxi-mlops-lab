@@ -2,4 +2,70 @@
 # Prometheus rule format: https://prometheus.io/docs/prometheus/latest/configuration/recording_rules/
 # Metric names are contracts/metrics.yaml's. `make check` runs promtool on this file and on any
 # *.test.yaml next to it.
-groups: []
+groups:
+  - name: slo-recording
+    interval: 30s
+    rules:
+      - record: job:lab_http_requests:avail_ratio_rate5m
+        expr: |
+          sum(rate(lab_http_requests_total{route="/predict", code!~"5.."}[5m]))
+          /
+          sum(rate(lab_http_requests_total{route="/predict"}[5m]))
+
+      - record: job:lab_http_requests:avail_ratio_rate1h
+        expr: |
+          sum(rate(lab_http_requests_total{route="/predict", code!~"5.."}[1h]))
+          /
+          sum(rate(lab_http_requests_total{route="/predict"}[1h]))
+
+      - record: job:lab_http_requests:error_burn_rate1h
+        expr: |
+          (1 - job:lab_http_requests:avail_ratio_rate1h) / (1 - 0.995)
+
+      - record: job:lab_http_requests:error_burn_rate5m
+        expr: |
+          (1 - job:lab_http_requests:avail_ratio_rate5m) / (1 - 0.995)
+
+      - record: job:lab_http_request_duration_seconds:latency_ratio_rate5m
+        expr: |
+          sum(rate(lab_http_request_duration_seconds_bucket{route="/predict", le="0.25"}[5m]))
+          /
+          sum(rate(lab_http_request_duration_seconds_count{route="/predict"}[5m]))
+
+      - record: job:lab_predictions:model_ratio_rate5m
+        expr: |
+          sum(rate(lab_predictions_total{source="model"}[5m]))
+          /
+          sum(rate(lab_predictions_total[5m]))
+
+  - name: slo-alerts
+    rules:
+      - alert: PredictAvailabilityBurnRate
+        expr: |
+          job:lab_http_requests:error_burn_rate1h > 14.4
+          and
+          job:lab_http_requests:error_burn_rate5m > 14.4
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "Predict availability error budget is burning rapidly"
+          description: "Predict 5xx error rate is consuming more than 14.4x the allowed budget over 1h and 5m windows."
+
+      - alert: PredictLatencyHigh
+        expr: job:lab_http_request_duration_seconds:latency_ratio_rate5m < 0.95
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Predict latency SLO breached"
+          description: "Less than 95% of predict requests are served under 250ms over the last 5 minutes."
+
+      - alert: ModelServingFallbackHigh
+        expr: job:lab_predictions:model_ratio_rate5m < 0.95
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High fallback prediction rate"
+          description: "More than 5% of ride duration quotes are falling back to the static median instead of serving from champion."

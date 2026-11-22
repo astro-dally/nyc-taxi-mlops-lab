@@ -3,7 +3,19 @@
 # number, and the alert that tells you it's being missed.
 slos:
   - name: predict-availability
-    sli:
-    objective:
-    why:
-    alert:
+    sli: "Ratio of non-5xx responses on /predict: sum(rate(lab_http_requests_total{route='/predict',code!~'5..'}[5m])) / sum(rate(lab_http_requests_total{route='/predict'}[5m]))"
+    objective: ">= 99.5% over 30 days"
+    why: "Riders must reliably receive ride quotes to book trips. A 99.5% availability target allows 0.5% error budget for model reloads, zero-downtime blue-green cutovers, and transient infrastructure blips."
+    alert: PredictAvailabilityBurnRate
+
+  - name: predict-latency
+    sli: "Ratio of /predict requests served within 250ms: sum(rate(lab_http_request_duration_seconds_bucket{route='/predict',le='0.25'}[5m])) / sum(rate(lab_http_request_duration_seconds_count{route='/predict'}[5m]))"
+    objective: ">= 95% under 250ms"
+    why: "Sub-second response is essential for mobile user experience; 95% of quotes under 250ms ensures snappy app interaction while permitting tail latency during cold model invocations."
+    alert: PredictLatencyHigh
+
+  - name: model-quote-quality
+    sli: "Ratio of quotes served by the ML model vs static median fallback: sum(rate(lab_predictions_total{source='model'}[5m])) / sum(rate(lab_predictions_total[5m]))"
+    objective: ">= 95% model quotes"
+    why: "While the static fallback prevents hard outages, sustained fallback degrades pricing accuracy. At least 95% of all predictions must come from the champion model."
+    alert: ModelServingFallbackHigh
