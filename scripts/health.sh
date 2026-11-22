@@ -8,6 +8,7 @@
 # Exit status: 0 when every line is OK, 1 otherwise.
 set -uo pipefail
 export AWS_REGION=us-east-1 AWS_DEFAULT_REGION=us-east-1 AWS_PAGER=""
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 root="$(cd "$(dirname "$0")/.." && pwd)"
 bad=0
 
