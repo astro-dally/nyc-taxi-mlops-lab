@@ -1,0 +1,113 @@
+# Model promotion workflow (S3): promotes a candidate model version to champion.
+#
+# Runs in the 'production' environment (requiring manual reviewer approval) on the app host runner.
+# Promotes the current challenger (or an explicitly named version) only if the pipeline evaluated it,
+# records the outgoing champion, reloads serving, and smoke tests /predict through Traefik.
+name: promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Model version to promote (leave empty for current challenger)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    environment: production
+    runs-on: [self-hosted, lab-app]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Verify candidate and promote to champion in MLflow
+        run: |
+          docker exec -i lab-serving-serving-champion-1 python - << 'EOF'
+          import os, sys, json, mlflow
+
+          tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
+          client = mlflow.MlflowClient(tracking_uri)
+          model_name = "trip-duration"
+
+          input_version = "${{ inputs.version }}".strip()
+          if input_version:
+              version = input_version
+              print(f"Target model version specified: {version}")
+          else:
+              try:
+                  challenger = client.get_model_version_by_alias(model_name, "challenger")
+                  version = challenger.version
+                  print(f"Target model version from @challenger alias: {version}")
+              except Exception as e:
+                  print(f"ERROR: Could not resolve @challenger alias: {e}", file=sys.stderr)
+                  sys.exit(1)
+
+          # Fetch model version details
+          mv = client.get_model_version(model_name, version)
+          tags = mv.tags or {}
+          print(f"Model version {version} tags:")
+          for k, v in sorted(tags.items()):
+              print(f"  {k}: {v}")
+
+          # Guard: verify the model was evaluated by the pipeline (contracts/mlflow.yaml)
+          required_tags = [
+              "training_window",
+              "holdout_month",
+              "features_version",
+              "git_sha",
+              "mae_min",
+              "p95_latency_ms",
+              "champion_mae_min",
+          ]
+          missing = [t for t in required_tags if t not in tags]
+          if missing:
+              print(f"ERROR: Model version {version} was not evaluated by the pipeline! Missing tags: {missing}", file=sys.stderr)
+              sys.exit(1)
+
+          # Record outgoing champion
+          outgoing_version = "none"
+          try:
+              curr_champ = client.get_model_version_by_alias(model_name, "champion")
+              outgoing_version = curr_champ.version
+              print(f"Outgoing champion version was: {outgoing_version}")
+          except Exception:
+              print("No existing champion alias found in MLflow (first promotion).")
+
+          client.set_model_version_tag(model_name, version, "outgoing_champion_version", outgoing_version)
+
+          # Promote: move champion alias
+          print(f"Assigning alias 'champion' to version {version}...")
+          client.set_registered_model_alias(model_name, "champion", version)
+          print(f"SUCCESS: Registered model {model_name} version {version} is now @champion.")
+          EOF
+
+      - name: Reload serving container and verify /predict
+        run: |
+          echo "Reloading serving-champion container..."
+          deploy/web.sh reload champion
+
+          echo "Serving container status:"
+          deploy/web.sh status | jq .serving.champion
+
+          echo "Verifying /predict through Traefik (port 80)..."
+          res=$(curl -fsS --retry 10 --retry-all-errors --retry-delay 2 \
+            -H "Content-Type: application/json" \
+            http://127.0.0.1:80/predict \
+            -d '{"pickup_zone_id": 132, "dropoff_zone_id": 230, "pickup_datetime": "2024-03-08T17:05:00"}')
+          echo "Predict response: $res"
+
+          alias=$(jq -r '.model.alias // empty' <<<"$res")
+          ver=$(jq -r '.model.version // empty' <<<"$res")
+
+          if [ "$alias" != "champion" ]; then
+            echo "ERROR: Expected model.alias to be 'champion', got '$alias'" >&2
+            exit 1
+          fi
+          echo "SUCCESS: App is quoting trips with champion model version $ver!"
