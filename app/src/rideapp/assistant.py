@@ -114,20 +114,52 @@ async def connect() -> psycopg.AsyncConnection:
                                                  password=s["password"], dbname="rag", autocommit=True, connect_timeout=5)
 
 
-TOP_K = 0  # decision 015
+TOP_K = 3  # decision 015
 
 
 async def retrieve(question_vector: list[float]) -> list[Chunk]:
-    """S6: the chunks closest to the question from rag.chunks (pgvector), best first. Until then: none."""
-    return []
+    """S6: the chunks closest to the question from rag.chunks (pgvector), best first."""
+    if TOP_K <= 0:
+        return []
+    v_str = vector_literal(question_vector)
+    conn = await connect()
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                SELECT c.id, c.page_id, p.title, c.content, 1 - (c.embedding <=> %s::vector) AS score
+                FROM chunks c
+                JOIN pages p ON c.page_id = p.id
+                WHERE c.embedding IS NOT NULL
+                ORDER BY c.embedding <=> %s::vector
+                LIMIT %s;
+                """,
+                (v_str, v_str, TOP_K),
+            )
+            rows = await cur.fetchall()
+            return [
+                Chunk(id=r[0], page_id=r[1], title=r[2], content=r[3], score=float(r[4]))
+                for r in rows
+            ]
+    finally:
+        await conn.close()
 
 
 SYSTEM_PROMPT = "You are the support assistant of a New York ride-hailing app."
 
 
 def build_messages(question: str, chunks: list[Chunk]) -> list[dict]:
-    """S6: the prompt. Until then the model answers from what it already knows (nothing about our wiki)."""
-    return [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": question}]
+    """S6: the prompt. The system prompt stays fixed, and excerpts are placed in the user turn for prefix caching."""
+    if not chunks:
+        return [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": question}]
+    context = "\n\n".join(f"[{c.title}]\n{c.content}" for c in chunks)
+    user_content = (
+        f"Context from company ops wiki:\n\n{context}\n\n"
+        f"Question: {question}\n\n"
+        "Answer the question accurately based on the ops wiki context above. "
+        "If the answer cannot be determined from the context, state that clearly."
+    )
+    return [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_content}]
 
 
 ALLOWED_TOOLS: set[str] = set()  # S7: which of the MCP server's tools the assistant may call
