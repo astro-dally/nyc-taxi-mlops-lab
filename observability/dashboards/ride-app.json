@@ -534,6 +534,15 @@
           },
           "expr": "job:lab_http_requests:error_burn_rate5m",
           "legendFormat": "5m burn rate"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "job:lab_http_requests:avail_ratio_rate5m * 100",
+          "legendFormat": "Availability SLI % (5m)"
         }
       ]
     },
