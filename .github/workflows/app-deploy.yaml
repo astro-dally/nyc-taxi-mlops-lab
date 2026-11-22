@@ -84,6 +84,7 @@ jobs:
       packages: read
     env:
       IMAGE_TAG: ${{ needs.image.outputs.tag }}
+      LLM_HOST: ${{ vars.LLM_HOST }}
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: docker/login-action@v4.6.0

@@ -78,3 +78,9 @@ module "grafana_secret" {
   name        = "lab/grafana"
   description = "Grafana Cloud Prometheus remote-write URL, user, and token"
 }
+
+module "langfuse_secret" {
+  source      = "../modules/secret"
+  name        = "lab/langfuse"
+  description = "Langfuse tracing keys (host, public_key, secret_key)"
+}
